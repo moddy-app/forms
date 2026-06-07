@@ -122,7 +122,7 @@
       const formId = window.location.pathname.replace(/^\//, "").split("/")[0];
 
       if (!formId) {
-        showError(404, "Ce formulaire n'existe pas.");
+        window.location.replace("https://moddy.app");
         return;
       }
 
