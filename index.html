@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+  <title>Chargement…</title>
+
+  <!-- Material Web Components -->
+  <script type="importmap">
+    {
+      "imports": {
+        "@material/web/": "https://esm.run/@material/web/"
+      }
+    }
+  </script>
+  <script type="module">
+    import "@material/web/progress/linear-progress.js";
+    import "@material/web/progress/circular-progress.js";
+  </script>
+
+  <!-- Favicon SVG inline -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20width%3D%22662%22%20height%3D%22662%22%20viewBox%3D%220%200%20662%20662%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M496.517%200H331.035L165.482%20165.482H0V330.963H331.035L496.517%20165.482V0Z%22%20fill%3D%22%230046F8%22%2F%3E%3Cpath%20d%3D%22M331.035%20330.963L165.483%20496.517V661.999H331.037L496.518%20496.517H662V330.963L331.035%20330.963Z%22%20fill%3D%22%230046F8%22%2F%3E%3C%2Fsvg%3E">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: "Google Sans", Roboto, sans-serif;
+      background: #fff;
+    }
+
+    /* ── Loading state ── */
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      z-index: 10;
+    }
+
+    #loading md-linear-progress {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      --md-linear-progress-active-indicator-color: #0046F8;
+      --md-linear-progress-track-color: #e8eaed;
+    }
+
+    #loading md-circular-progress {
+      --md-circular-progress-active-indicator-color: #0046F8;
+      width: 48px;
+      height: 48px;
+    }
+
+    /* ── Error state ── */
+    #error {
+      display: none;
+      position: fixed;
+      inset: 0;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      background: #fff;
+      color: #202124;
+      z-index: 10;
+    }
+
+    #error h1 {
+      font-size: 6rem;
+      font-weight: 700;
+      color: #0046F8;
+      line-height: 1;
+    }
+
+    #error p {
+      font-size: 1.1rem;
+      color: #5f6368;
+    }
+
+    /* ── Form iframe ── */
+    #form-container {
+      display: none;
+      position: fixed;
+      inset: 0;
+    }
+
+    #form-container iframe {
+      position: absolute;
+      inset: 0;
+      border: 0;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading -->
+  <div id="loading">
+    <md-linear-progress indeterminate></md-linear-progress>
+    <md-circular-progress indeterminate></md-circular-progress>
+  </div>
+
+  <!-- Error -->
+  <div id="error">
+    <h1 id="error-code">404</h1>
+    <p id="error-msg">Ce formulaire n'existe pas.</p>
+  </div>
+
+  <!-- Form -->
+  <div id="form-container"></div>
+
+  <script>
+    (async () => {
+      const formId = window.location.pathname.replace(/^\//, "").split("/")[0];
+
+      if (!formId) {
+        showError(404, "Ce formulaire n'existe pas.");
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+
+      // If params are already set (redirect after sign-in), render directly.
+      if (params.get("discord_id") && params.get("session")) {
+        await renderForm(formId, params, null);
+        return;
+      }
+
+      // 1. Auth check
+      let user;
+      try {
+        const meRes = await fetch("https://api.moddy.app/me", { credentials: "include" });
+        if (!meRes.ok) {
+          window.location.href = `https://moddy.app/sign-in?url=${encodeURIComponent(window.location.href)}`;
+          return;
+        }
+        user = await meRes.json();
+      } catch (_) {
+        window.location.href = `https://moddy.app/sign-in?url=${encodeURIComponent(window.location.href)}`;
+        return;
+      }
+
+      // 2. Form exists?
+      let form;
+      try {
+        const formRes = await fetch(`https://api.moddy.app/tally/forms/${formId}`);
+        if (!formRes.ok) {
+          showError(404, "Ce formulaire n'existe pas.");
+          return;
+        }
+        form = await formRes.json();
+      } catch (_) {
+        showError(500, "Impossible de charger le formulaire.");
+        return;
+      }
+
+      // 3. Session hash
+      let session;
+      try {
+        const hashRes = await fetch("https://api.moddy.app/tally/session-hash", { credentials: "include" });
+        if (!hashRes.ok) throw new Error("session-hash failed");
+        ({ session } = await hashRes.json());
+      } catch (_) {
+        showError(500, "Erreur de session. Veuillez réessayer.");
+        return;
+      }
+
+      // 4. Inject params into URL (no extra redirect — just update history)
+      const url = new URL(window.location.href);
+      url.searchParams.set("discord_id", user.user_id);
+      url.searchParams.set("email", user.email ?? "");
+      url.searchParams.set("session", session);
+      window.history.replaceState({}, "", url);
+
+      await renderForm(formId, url.searchParams, form.title);
+    })();
+
+    async function renderForm(formId, params, title) {
+      const discordId = params.get("discord_id");
+      const email     = params.get("email") ?? "";
+      const session   = params.get("session");
+
+      // Update page title
+      if (title) document.title = title;
+
+      const tallySrc = new URL(`https://tally.so/r/${formId}`);
+      tallySrc.searchParams.set("transparentBackground", "1");
+      tallySrc.searchParams.set("discord_id", discordId);
+      tallySrc.searchParams.set("email", email);
+      tallySrc.searchParams.set("session", session);
+
+      const iframe = document.createElement("iframe");
+      iframe.setAttribute("data-tally-src", tallySrc.toString());
+      iframe.width = "100%";
+      iframe.height = "100%";
+      iframe.frameBorder = "0";
+      iframe.marginHeight = "0";
+      iframe.marginWidth = "0";
+      iframe.title = title ?? formId;
+
+      const container = document.getElementById("form-container");
+      container.appendChild(iframe);
+
+      // Load Tally embed widget AFTER iframe is in the DOM
+      await loadTallyWidget();
+
+      hideLoading();
+      container.style.display = "block";
+    }
+
+    function loadTallyWidget() {
+      return new Promise((resolve) => {
+        if (window.Tally) { window.Tally.loadEmbeds(); resolve(); return; }
+        const s = document.createElement("script");
+        s.src = "https://tally.so/widgets/embed.js";
+        s.async = true;
+        s.onload = () => { if (window.Tally) window.Tally.loadEmbeds(); resolve(); };
+        s.onerror = resolve; // fail silently — iframe will still work
+        document.head.appendChild(s);
+      });
+    }
+
+    function hideLoading() {
+      document.getElementById("loading").style.display = "none";
+    }
+
+    function showError(code, msg) {
+      hideLoading();
+      document.getElementById("error-code").textContent = code;
+      document.getElementById("error-msg").textContent = msg;
+      document.getElementById("error").style.display = "flex";
+    }
+  </script>
+</body>
+</html>
