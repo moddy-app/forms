@@ -137,7 +137,7 @@
       // 1. Auth check
       let user;
       try {
-        const meRes = await fetch("https://api.moddy.app/me", { credentials: "include" });
+        const meRes = await fetch("https://api.moddy.app/auth/me", { credentials: "include" });
         if (!meRes.ok) {
           window.location.href = `https://moddy.app/sign-in?url=${encodeURIComponent(window.location.href)}`;
           return;
@@ -166,6 +166,14 @@
       let session;
       try {
         const hashRes = await fetch("https://api.moddy.app/tally/session-hash", { credentials: "include" });
+        if (hashRes.status === 401) {
+          window.location.href = `https://moddy.app/sign-in?url=${encodeURIComponent(window.location.href)}`;
+          return;
+        }
+        if (hashRes.status === 503) {
+          showError(503, "Service temporairement indisponible. Veuillez réessayer plus tard.");
+          return;
+        }
         if (!hashRes.ok) throw new Error("session-hash failed");
         ({ session } = await hashRes.json());
       } catch (_) {
